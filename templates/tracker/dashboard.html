@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard · {{ SITE_NAME }}{% endblock %}
+{% block body_class %}app-body{% endblock %}
+
+{% block body_attrs %}
+    data-today="{{ today }}"
+    data-current-month="{{ current_month }}"
+    data-display-name="{{ display_name }}"
+    data-login-url="{% url 'login' %}"
+{% endblock %}
+
+{% block body %}
+<div class="app-shell">
+    <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-head">
+            <a class="brand" href="{% url 'dashboard' %}">
+                <span class="brand-mark"><i class="bi bi-pie-chart-fill"></i></span>
+                <span class="brand-name">{{ SITE_NAME }}</span>
+            </a>
+            <button class="icon-btn sidebar-close d-lg-none" type="button" data-sidebar-close aria-label="Close menu">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="sidebar-label">Workspace</div>
+        <nav class="sidebar-nav" aria-label="Dashboard sections">
+            <a class="sidebar-link is-active" href="#overview" data-section-link="overview">
+                <i class="bi bi-grid-1x2"></i><span>Overview</span>
+            </a>
+            <a class="sidebar-link" href="#budgets" data-section-link="budgets">
+                <i class="bi bi-bullseye"></i><span>Budgets</span>
+                <span class="nav-badge d-none" id="navBudgetBadge">0</span>
+            </a>
+            <a class="sidebar-link" href="#transactions" data-section-link="transactions">
+                <i class="bi bi-receipt"></i><span>Transactions</span>
+            </a>
+            <a class="sidebar-link" href="#categories" data-section-link="categories">
+                <i class="bi bi-tags"></i><span>Categories</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-tip">
+            <span class="sidebar-tip-icon"><i class="bi bi-lightbulb"></i></span>
+            <div>
+                <strong>Budget tip</strong>
+                <p>Set limits on the categories you spend the most on. We will warn you at 80%.</p>
+            </div>
+        </div>
+
+        <div class="sidebar-foot">
+            <div class="user-chip">
+                <span class="avatar">{{ user.username|slice:":1"|upper }}</span>
+                <div class="user-chip-copy">
+                    <strong>{{ display_name }}</strong>
+                    <span>@{{ user.username }}</span>
+                </div>
+            </div>
+            <form method="post" action="{% url 'logout' %}" class="m-0">
+                {% csrf_token %}
+                <button type="submit" class="logout-btn" title="Sign out">
+                    <i class="bi bi-box-arrow-right"></i>
+                </button>
+            </form>
+        </div>
+    </aside>
+
+    <div class="sidebar-backdrop" data-sidebar-close></div>
+
+    <div class="app-main">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn d-lg-none" type="button" data-sidebar-toggle aria-label="Open menu">
+                    <i class="bi bi-list"></i>
+                </button>
+                <div>
+                    <h1 id="pageTitle">Overview</h1>
+                    <p class="topbar-sub" id="pageSubtitle">Your money at a glance for <span class="js-month-label">this month</span>.</p>
+                </div>
+            </div>
+
+            <div class="topbar-actions">
+                <label class="month-control" for="monthPicker">
+                    <i class="bi bi-calendar3"></i>
+                    <input type="month" id="monthPicker" value="{{ current_month }}" max="{{ current_month }}" aria-label="Select month">
+                </label>
+                <button class="btn btn-soft d-none d-sm-inline-flex" type="button" id="exportBtn">
+                    <i class="bi bi-download"></i><span>Export CSV</span>
+                </button>
+                <button class="btn btn-primary" type="button" id="addTransactionBtn">
+                    <i class="bi bi-plus-lg"></i><span class="d-none d-sm-inline">Add transaction</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="app-content">
+            <div id="pageAlert" class="page-alert d-none" role="alert"></div>
+
+            <!-- Overview -------------------------------------------------- -->
+            <section class="app-section" id="overview" aria-labelledby="overviewHeading">
+                <h2 class="visually-hidden" id="overviewHeading">Overview</h2>
+
+                <div class="summary-grid">
+                    <article class="stat-card stat-card--income">
+                        <div class="stat-top">
+                            <span class="stat-icon"><i class="bi bi-arrow-down-left"></i></span>
+                            <span class="stat-label">Income</span>
+                        </div>
+                        <div class="stat-value" id="summaryIncome">—</div>
+                        <div class="stat-foot" id="summaryIncomeCount">No transactions yet</div>
+                    </article>
+
+                    <article class="stat-card stat-card--expense">
+                        <div class="stat-top">
+                            <span class="stat-icon"><i class="bi bi-arrow-up-right"></i></span>
+                            <span class="stat-label">Expenses</span>
+                        </div>
+                        <div class="stat-value" id="summaryExpense">—</div>
+                        <div class="stat-foot" id="summaryExpenseCount">No transactions yet</div>
+                    </article>
+
+                    <article class="stat-card stat-card--balance">
+                        <div class="stat-top">
+                            <span class="stat-icon"><i class="bi bi-wallet2"></i></span>
+                            <span class="stat-label">Net balance</span>
+                        </div>
+                        <div class="stat-value" id="summaryNet">—</div>
+                        <div class="stat-foot">
+                            <span id="summaryNetCount">Income minus expenses</span>
+                            <span class="stat-badge" id="summarySavings">0%</span>
+                        </div>
+                    </article>
+
+                    <article class="stat-card stat-card--budget" id="budgetAlertCard">
+                        <div class="stat-top">
+                            <span class="stat-icon"><i class="bi bi-bullseye"></i></span>
+                            <span class="stat-label">Budget health</span>
+                        </div>
+                        <div class="stat-value" id="summaryBudgetAlerts">—</div>
+                        <div class="stat-foot" id="summaryBudgetMeta">No budgets set</div>
+                    </article>
+                </div>
+
+                <div class="charts-grid">
+                    <article class="panel chart-panel">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Where the money went</h3>
+                                <p>Expenses by category · <span class="js-month-label">this month</span></p>
+                            </div>
+                            <span class="panel-chip"><i class="bi bi-pie-chart"></i> Breakdown</span>
+                        </div>
+                        <div class="chart-body chart-body--doughnut">
+                            <div class="chart-canvas chart-canvas--doughnut">
+                                <canvas id="expenseChart" aria-label="Expenses by category doughnut chart" role="img"></canvas>
+                                <div class="chart-empty d-none" id="expenseChartEmpty">
+                                    <i class="bi bi-pie-chart"></i>
+                                    <p>No expenses recorded for this month.</p>
+                                    <button class="btn btn-sm btn-soft" type="button" data-add-transaction>Record one</button>
+                                </div>
+                            </div>
+                            <div class="chart-legend" id="categoryLegend"></div>
+                        </div>
+                    </article>
+
+                    <article class="panel chart-panel">
+                        <div class="panel-head">
+                            <div>
+                                <h3>Income vs expenses</h3>
+                                <p>Six-month trend, ending <span class="js-month-label">this month</span></p>
+                            </div>
+                            <span class="panel-chip"><i class="bi bi-bar-chart"></i> Trend</span>
+                        </div>
+                        <div class="chart-body">
+                            <div class="chart-canvas chart-canvas--bar">
+                                <canvas id="trendChart" aria-label="Six month income versus expense bar chart" role="img"></canvas>
+                                <div class="chart-empty d-none" id="trendChartEmpty">
+                                    <i class="bi bi-bar-chart"></i>
+                                    <p>No activity in the last six months.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <!-- Budgets -------------------------------------------------- -->
+            <section class="app-section" id="budgets" aria-labelledby="budgetsHeading">
+                <article class="panel">
+                    <div class="panel-head panel-head--bordered">
+                        <div>
+                            <h3 id="budgetsHeading">Monthly budgets</h3>
+                            <p>Spending limits for <span class="js-month-label">this month</span>. Status is calculated by the server.</p>
+                        </div>
+                        <button class="btn btn-soft btn-sm" type="button" id="addBudgetBtn">
+                            <i class="bi bi-plus-lg"></i> Set budget
+                        </button>
+                    </div>
+
+                    <div class="budget-summary-strip d-none" id="budgetSummary"></div>
+                    <div class="budget-grid" id="budgetList"></div>
+
+                    <div class="empty-state d-none" id="budgetEmpty">
+                        <span class="empty-icon"><i class="bi bi-bullseye"></i></span>
+                        <h4>No budgets for this month</h4>
+                        <p>Set a limit for your expense categories and get warned at 80% and 100%.</p>
+                        <button class="btn btn-primary btn-sm" type="button" id="emptyAddBudgetBtn">
+                            <i class="bi bi-plus-lg"></i> Set your first budget
+                        </button>
+                    </div>
+                </article>
+            </section>
+
+            <!-- Transactions --------------------------------------------- -->
+            <section class="app-section" id="transactions" aria-labelledby="transactionsHeading">
+                <article class="panel">
+                    <div class="panel-head panel-head--bordered">
+                        <div>
+                            <h3 id="transactionsHeading">Transactions</h3>
+                            <p><span id="txnCountLabel">0 transactions</span> · <span class="js-month-label">this month</span></p>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="btn btn-soft btn-sm" type="button" data-export>
+                                <i class="bi bi-download"></i> CSV
+                            </button>
+                            <button class="btn btn-primary btn-sm" type="button" data-add-transaction>
+                                <i class="bi bi-plus-lg"></i> Add
+                            </button>
+                        </div>
+                    </div>
+
+                    <form class="filter-bar" id="filterForm" autocomplete="off">
+                        <div class="filter-field filter-field--search">
+                            <label for="filterSearch">Search</label>
+                            <div class="input-with-icon">
+                                <i class="bi bi-search"></i>
+                                <input type="search" class="form-control form-control-sm" id="filterSearch" placeholder="Description…">
+                            </div>
+                        </div>
+                        <div class="filter-field">
+                            <label for="filterStart">From</label>
+                            <input type="date" class="form-control form-control-sm" id="filterStart">
+                        </div>
+                        <div class="filter-field">
+                            <label for="filterEnd">To</label>
+                            <input type="date" class="form-control form-control-sm" id="filterEnd">
+                        </div>
+                        <div class="filter-field">
+                            <label for="filterCategory">Category</label>
+                            <select class="form-select form-select-sm" id="filterCategory">
+                                <option value="">All categories</option>
+                            </select>
+                        </div>
+                        <div class="filter-field">
+                            <label for="filterType">Type</label>
+                            <select class="form-select form-select-sm" id="filterType">
+                                <option value="">All types</option>
+                                <option value="income">Income</option>
+                                <option value="expense">Expense</option>
+                            </select>
+                        </div>
+                        <div class="filter-actions">
+                            <button class="btn btn-primary btn-sm" type="submit">Apply</button>
+                            <button class="btn btn-ghost btn-sm" type="button" id="filterReset">Reset</button>
+                        </div>
+                    </form>
+
+                    <div class="table-wrap">
+                        <table class="table transaction-table align-middle">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Description</th>
+                                    <th scope="col">Category</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col" class="text-end">Amount</th>
+                                    <th scope="col" class="text-end"><span class="visually-hidden">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionTableBody"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="empty-state d-none" id="transactionEmpty">
+                        <span class="empty-icon"><i class="bi bi-receipt"></i></span>
+                        <h4>No transactions found</h4>
+                        <p id="transactionEmptyText">Try a different month or clear the filters.</p>
+                        <div class="empty-actions">
+                            <button class="btn btn-ghost btn-sm" type="button" id="emptyResetFilters">Clear filters</button>
+                            <button class="btn btn-primary btn-sm" type="button" data-add-transaction>
+                                <i class="bi bi-plus-lg"></i> Add transaction
+                            </button>
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <!-- Categories ----------------------------------------------- -->
+            <section class="app-section" id="categories" aria-labelledby="categoriesHeading">
+                <article class="panel">
+                    <div class="panel-head panel-head--bordered">
+                        <div>
+                            <h3 id="categoriesHeading">Categories</h3>
+                            <p><span id="categoryCountLabel">0 categories</span> · names are unique to your account</p>
+                        </div>
+                        <button class="btn btn-soft btn-sm" type="button" id="addCategoryBtn">
+                            <i class="bi bi-plus-lg"></i> New category
+                        </button>
+                    </div>
+
+                    <div class="category-grid" id="categoryList"></div>
+
+                    <div class="empty-state d-none" id="categoryEmpty">
+                        <span class="empty-icon"><i class="bi bi-tags"></i></span>
+                        <h4>No categories yet</h4>
+                        <p>Create categories such as Food, Rent, Salary or Travel before logging a transaction.</p>
+                        <button class="btn btn-primary btn-sm" type="button" id="emptyAddCategoryBtn">
+                            <i class="bi bi-plus-lg"></i> Create category
+                        </button>
+                    </div>
+                </article>
+            </section>
+
+            <footer class="app-footer">
+                <span>{{ SITE_NAME }} · expense tracking, budgets &amp; analytics</span>
+                <span>Server-rendered analytics · Django ORM</span>
+            </footer>
+        </main>
+    </div>
+</div>
+
+<!-- Transaction modal ------------------------------------------------ -->
+<div class="modal fade" id="transactionModal" tabindex="-1" aria-labelledby="transactionModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content app-modal">
+            <form id="transactionForm" novalidate>
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="transactionModalTitle">Add transaction</h5>
+                        <p class="modal-subtitle" id="transactionModalSubtitle">Record a new income or expense entry.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="txnId">
+
+                    <div class="segmented" role="group" aria-label="Transaction type">
+                        <input type="radio" class="btn-check" name="txnType" id="txnTypeExpense" value="expense" checked>
+                        <label class="segmented-btn segmented-btn--expense" for="txnTypeExpense">
+                            <i class="bi bi-arrow-up-right"></i> Expense
+                        </label>
+                        <input type="radio" class="btn-check" name="txnType" id="txnTypeIncome" value="income">
+                        <label class="segmented-btn segmented-btn--income" for="txnTypeIncome">
+                            <i class="bi bi-arrow-down-left"></i> Income
+                        </label>
+                    </div>
+
+                    <div class="form-field">
+                        <label class="form-label" for="txnAmount">Amount <span class="req">*</span></label>
+                        <div class="money-input">
+                            <span class="money-prefix" data-currency-symbol>₹</span>
+                            <input type="number" class="form-control" id="txnAmount" step="0.01" min="0.01" placeholder="0.00" required>
+                        </div>
+                    </div>
+
+                    <div class="form-field">
+                        <label class="form-label" for="txnCategory">Category <span class="req">*</span></label>
+                        <select class="form-select" id="txnCategory" required>
+                            <option value="">Choose a category</option>
+                        </select>
+                        <p class="field-hint d-none" id="txnCategoryHint">
+                            <i class="bi bi-info-circle"></i> Create a category first to record a transaction.
+                        </p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="txnDate">Date <span class="req">*</span></label>
+                            <input type="date" class="form-control" id="txnDate" max="{{ today }}" value="{{ today }}" required>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="txnDescription">Description</label>
+                            <input type="text" class="form-control" id="txnDescription" maxlength="255" placeholder="e.g. Groceries">
+                        </div>
+                    </div>
+
+                    <div class="form-alert d-none" id="txnFormError" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="txnSubmitBtn">Save transaction</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Category modal --------------------------------------------------- -->
+<div class="modal fade" id="categoryModal" tabindex="-1" aria-labelledby="categoryModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content app-modal">
+            <form id="categoryForm" novalidate>
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="categoryModalTitle">New category</h5>
+                        <p class="modal-subtitle">Group transactions by what they are.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="catId">
+
+                    <div class="form-field">
+                        <label class="form-label" for="catName">Category name <span class="req">*</span></label>
+                        <input type="text" class="form-control" id="catName" maxlength="60" placeholder="e.g. Food, Rent, Salary" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label class="form-label" for="catType">Type <span class="req">*</span></label>
+                        <select class="form-select" id="catType">
+                            <option value="expense">Expense</option>
+                            <option value="income">Income</option>
+                        </select>
+                        <p class="field-hint d-none" id="catTypeHint">
+                            <i class="bi bi-lock"></i> Type can’t be changed because this category already has transactions.
+                        </p>
+                    </div>
+
+                    <div class="form-alert d-none" id="catFormError" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="catSubmitBtn">Create category</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Budget modal ----------------------------------------------------- -->
+<div class="modal fade" id="budgetModal" tabindex="-1" aria-labelledby="budgetModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content app-modal">
+            <form id="budgetForm" novalidate>
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="budgetModalTitle">Set budget</h5>
+                        <p class="modal-subtitle">A monthly limit for one expense category.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="budgetId">
+
+                    <div class="form-field">
+                        <label class="form-label" for="budgetCategory">Expense category <span class="req">*</span></label>
+                        <select class="form-select" id="budgetCategory" required>
+                            <option value="">Choose a category</option>
+                        </select>
+                        <p class="field-hint d-none" id="budgetHint">
+                            <i class="bi bi-info-circle"></i> You need an expense category first.
+                        </p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="budgetMonth">Month <span class="req">*</span></label>
+                            <input type="month" class="form-control" id="budgetMonth" value="{{ current_month }}" required>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="budgetAmount">Limit <span class="req">*</span></label>
+                            <div class="money-input">
+                                <span class="money-prefix" data-currency-symbol>₹</span>
+                                <input type="number" class="form-control" id="budgetAmount" step="0.01" min="0.01" placeholder="0.00" required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="field-hint" id="budgetEditHint" hidden>
+                        <i class="bi bi-pencil"></i> Editing an existing budget. Delete it from the budget card to start over.
+                    </p>
+
+                    <div class="form-alert d-none" id="budgetFormError" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="budgetSubmitBtn">Save budget</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm modal ---------------------------------------------------- -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content app-modal">
+            <div class="modal-body confirm-body">
+                <span class="confirm-icon" id="confirmIcon"><i class="bi bi-exclamation-triangle"></i></span>
+                <h5 id="confirmTitle">Are you sure?</h5>
+                <p id="confirmMessage">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer confirm-footer">
+                <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmOkBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}"></script>
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
